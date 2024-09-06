@@ -23,15 +23,35 @@ fi
 
 API="https://sentry.io/api/0/projects/${SENTRY_ORG}/${SENTRY_PROJECT}"
 
-# Create a release
-echo "-----> Creating Sentry release ${SOURCE_VERSION} for organization '${SENTRY_ORG}' in project '${SENTRY_PROJECT}'"
-
-curl -sSf "${API}/releases/" \
-  -X POST \
+# Check if release exists
+echo "-----> Checking if Sentry release ${SOURCE_VERSION} already exists"
+release_check=$(curl -sSf "${API}/releases/${SOURCE_VERSION}/" \
   -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
-  -H 'Content-Type: application/json' \
-  -d "{\"version\": \"${SOURCE_VERSION}\"}" \
-  >/dev/null
+  -o /dev/null -w "%{http_code}" || echo "404")
+
+if [[ "$release_check" == "404" ]]; then
+    # Create a release
+    echo "-----> Creating Sentry release ${SOURCE_VERSION} for organization '${SENTRY_ORG}' in project '${SENTRY_PROJECT}'"
+
+    curl -sSf "${API}/releases/" \
+      -X POST \
+      -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
+      -H 'Content-Type: application/json' \
+      -d "{\"version\": \"${SOURCE_VERSION}\"}" \
+      >/dev/null
+fi
+
+files_check=$(curl -sSf "${API}/releases/${SOURCE_VERSION}/files/" \
+  -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
+  | ${JQ} '. | length')
+
+if [[ "$files_check" -gt 0 ]]; then
+    echo "-----> Release already has files. Exiting..."
+    echo "       Done!"
+    return 0
+else
+    echo "-----> Release exists but has no files. Proceeding with sourcemap upload."
+fi
 
 # Retrieve files
 files=$(mktemp)
